@@ -16,6 +16,9 @@ $jaravel = new \Jaravel\Entry();
 // Enable debug mode
 $jaravel->enableDebug(true);
 
+// Enable route debugging to fix empty routes tab
+$jaravel->enableRouteDebugging(true);
+
 // Register the component
 $jaravel->registerComponent('com_helloworld');
 

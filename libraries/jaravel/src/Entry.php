@@ -20,6 +20,16 @@ class Entry
     protected static $registeredComponents = [];
 
     /**
+     * @var bool Whether route debugging is enabled
+     */
+    protected $routeDebuggingEnabled = false;
+
+    /**
+     * @var array Cached routes by component
+     */
+    protected $routeCache = [];
+
+    /**
      * Constructor
      */
     public function __construct()
@@ -43,6 +53,22 @@ class Entry
     }
 
     /**
+     * Enable detailed route debugging
+     * 
+     * @param bool $enabled
+     * @return void
+     */
+    public function enableRouteDebugging($enabled = true) 
+    {
+        $this->routeDebuggingEnabled = $enabled;
+        
+        if ($enabled) {
+            // Make sure debug is also enabled
+            $this->enableDebug(true);
+        }
+    }
+
+    /**
      * Register a Joomla component with Jaravel
      *
      * @param string $componentName
@@ -61,6 +87,54 @@ class Entry
 
         // Register the component
         self::$registeredComponents[] = $componentName;
+        
+        // Cache routes if route debugging is enabled
+        if ($this->routeDebuggingEnabled) {
+            Debug::log("Pre-loading routes for component: {$componentName}");
+            $this->loadRoutes($app, $componentName);
+            $this->cacheRoutes($componentName);
+        }
+    }
+
+    /**
+     * Cache routes for a component
+     *
+     * @param string $componentName
+     * @return void
+     */
+    protected function cacheRoutes($componentName)
+    {
+        try {
+            // Get the Laravel application instance
+            $app = $this->manager->getInstance($componentName);
+            
+            // Get routes collection
+            $routes = $app['router']->getRoutes();
+            
+            if (count($routes) === 0) {
+                Debug::log("No routes found for component: {$componentName}");
+                return;
+            }
+            
+            // Format routes for debugging
+            $formattedRoutes = [];
+            foreach ($routes->getRoutes() as $route) {
+                $formattedRoutes[] = [
+                    'methods' => $route->methods(),
+                    'uri' => $route->uri(),
+                    'action' => $route->getActionName()
+                ];
+            }
+            
+            // Store in cache
+            $this->routeCache[$componentName] = $formattedRoutes;
+            
+            // Log for debug output
+            Debug::log("Routes registered for component: {$componentName}", $formattedRoutes);
+            
+        } catch (\Exception $e) {
+            Debug::error("Error caching routes: " . $e->getMessage());
+        }
     }
 
     /**
@@ -82,8 +156,10 @@ class Entry
             // Get the Laravel application instance
             $app = $this->manager->getInstance($componentName);
 
-            // Load routes from component
-            $this->loadRoutes($app, $componentName);
+            // Load routes from component if not already loaded
+            if (!isset($this->routeCache[$componentName])) {
+                $this->loadRoutes($app, $componentName);
+            }
 
             // Create a request for the route
             $request = $this->createRequest($route, $params);
@@ -92,9 +168,9 @@ class Entry
             $kernel = $app->make('Illuminate\Contracts\Http\Kernel');
             $response = $kernel->handle($request);
 
-            // Log routes if debugging is enabled
-            if (Debug::isEnabled()) {
-                Debug::log("Registered routes", Debug::getRoutes($componentName));
+            // Log cached routes if debugging is enabled and not already logged
+            if (Debug::isEnabled() && $this->routeDebuggingEnabled && isset($this->routeCache[$componentName])) {
+                Debug::log("Registered routes", $this->routeCache[$componentName]);
             }
 
             // Terminate the application

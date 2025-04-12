@@ -298,46 +298,62 @@ class Debug
         $output .= '<div class="tab-pane fade" id="' . $debugId . '-routes" role="tabpanel">';
 
         $routes = self::$log ? array_filter(self::$log, function($entry) {
-            return $entry['message'] === 'Registered routes' && isset($entry['context']);
+            return $entry['message'] === 'Registered routes' && isset($entry['context']) && !empty($entry['context']);
         }) : [];
 
         if (!empty($routes)) {
-            $routeData = current($routes);
-            $output .= '<div class="table-responsive">
-                <table class="table table-sm table-hover">
-                    <thead>
-                        <tr>
-                            <th>Method</th>
-                            <th>URI</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>';
+            $routeData = end($routes); // Get the last registered routes entry
+            
+            if (!empty($routeData['context'])) {
+                $output .= '<div class="alert alert-success mb-3">
+                    <strong>Routes successfully loaded!</strong> The following routes are registered for this component.
+                </div>';
+                
+                $output .= '<div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>Method</th>
+                                <th>URI</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>';
 
-            foreach ($routeData['context'] as $route) {
-                $method = implode('|', $route['methods']);
-                $methodClass = '';
+                foreach ($routeData['context'] as $route) {
+                    $method = implode('|', $route['methods']);
+                    $methodClass = '';
 
-                if (in_array('GET', $route['methods'])) {
-                    $methodClass = 'bg-success text-white';
-                } elseif (in_array('POST', $route['methods'])) {
-                    $methodClass = 'bg-primary text-white';
-                } elseif (in_array('PUT', $route['methods']) || in_array('PATCH', $route['methods'])) {
-                    $methodClass = 'bg-warning text-dark';
-                } elseif (in_array('DELETE', $route['methods'])) {
-                    $methodClass = 'bg-danger text-white';
+                    if (in_array('GET', $route['methods'])) {
+                        $methodClass = 'bg-success text-white';
+                    } elseif (in_array('POST', $route['methods'])) {
+                        $methodClass = 'bg-primary text-white';
+                    } elseif (in_array('PUT', $route['methods']) || in_array('PATCH', $route['methods'])) {
+                        $methodClass = 'bg-warning text-dark';
+                    } elseif (in_array('DELETE', $route['methods'])) {
+                        $methodClass = 'bg-danger text-white';
+                    }
+
+                    $output .= '<tr>
+                        <td><span class="badge ' . $methodClass . '">' . $method . '</span></td>
+                        <td>' . htmlspecialchars($route['uri']) . '</td>
+                        <td><code>' . htmlspecialchars($route['action']) . '</code></td>
+                    </tr>';
                 }
 
-                $output .= '<tr>
-                    <td><span class="badge ' . $methodClass . '">' . $method . '</span></td>
-                    <td>' . htmlspecialchars($route['uri']) . '</td>
-                    <td><code>' . htmlspecialchars($route['action']) . '</code></td>
-                </tr>';
+                $output .= '</tbody></table></div>';
+            } else {
+                $output .= '<div class="alert alert-warning">Routes were registered but appear to be empty. Check your routes file.</div>';
             }
-
-            $output .= '</tbody></table></div>';
         } else {
-            $output .= '<div class="alert alert-info">No routes registered or route information not available.</div>';
+            $output .= '<div class="alert alert-info">
+                <strong>No routes found!</strong> To see your routes:
+                <ol class="mt-2">
+                    <li>Make sure you have a <code>routes/web.php</code> file in your component directory</li>
+                    <li>Add <code>$jaravel->enableRouteDebugging(true);</code> before registering your component</li>
+                    <li>Ensure your routes are defined correctly</li>
+                </ol>
+            </div>';
         }
 
         $output .= '</div>';
