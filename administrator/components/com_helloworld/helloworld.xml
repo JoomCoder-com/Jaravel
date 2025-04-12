@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension type="component" version="3.0" method="upgrade">
+    <name>com_helloworld</name>
+    <author>Your Name</author>
+    <version>1.0.0</version>
+    <description>A minimal Hello World component using Jaravel</description>
+
+    <files folder="site">
+        <filename>helloworld.php</filename>
+        <folder>routes</folder>
+    </files>
+
+    <administration>
+        <menu>Hello World</menu>
+        <files folder="admin">
+            <filename>helloworld.php</filename>
+        </files>
+    </administration>
+</extension>

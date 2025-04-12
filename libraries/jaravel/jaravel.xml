@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension type="library" method="upgrade" version="3.0">
+    <name>Jaravel</name>
+    <libraryname>jaravel</libraryname>
+    <version>1.0.0</version>
+    <description>Laravel Integration for Joomla</description>
+    <author>Your Name</author>
+    <creationDate>April 2025</creationDate>
+    <copyright>Copyright (C) 2025 Your Name. All rights reserved.</copyright>
+    <license>GNU General Public License version 2 or later</license>
+    <authorEmail>your.email@example.com</authorEmail>
+    <authorUrl>www.example.com</authorUrl>
+    <files>
+        <folder>src</folder>
+        <folder>vendor</folder>
+        <filename>jaravel.php</filename>
+    </files>
+</extension>
