@@ -1,0 +1,13 @@
+{
+    "name": "jaravel/component-helloworld",
+    "description": "Helloworld component using Jaravel",
+    "type": "joomla-component",
+    "autoload": {
+        "psr-4": {
+            "Jaravel\\Component\\HelloWorld\\": "app/"
+        }
+    },
+    "require": {
+        "php": ">=8.0"
+    }
+} 
