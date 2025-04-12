@@ -1,4 +1,3 @@
-// File: administrator/components/com_helloworld/helloworld.php
 <?php
 // No direct access to this file
 defined('_JEXEC') or die('Restricted access');
