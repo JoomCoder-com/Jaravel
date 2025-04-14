@@ -23,63 +23,53 @@ class DebugbarMiddleware
      */
     public function handle(Request $request, Closure $next)
     {
-        // Process the request first
-        $response = $next($request);
-
-        // If debugbar is enabled and bound in the container
+        // Log basic request info in Debugbar
         if (App::bound('debugbar') && App::make('debugbar')->isEnabled()) {
             $debugbar = App::make('debugbar');
-
-            // Add basic request information
             $debugbar->addMessage("Request URI: " . $request->getRequestUri(), 'jaravel');
             $debugbar->addMessage("Method: " . $request->method(), 'jaravel');
 
-            // Add component information if available
+            // Log request parameters (exclude sensitive data)
+            $params = $request->except(['password', 'token', 'key']);
+            if (!empty($params)) {
+                $debugbar->addMessage("Parameters: " . json_encode($params), 'jaravel');
+            }
+
+            // Start measuring the request handling time
+            Debug::startMeasure('requestHandling', 'Request Handling');
+        }
+
+        // Process the request
+        $response = $next($request);
+
+        // Add Joomla-specific information to Debugbar
+        if (App::bound('debugbar') && App::make('debugbar')->isEnabled()) {
+            // Stop measuring
+            Debug::stopMeasure('requestHandling');
+
+            $debugbar = App::make('debugbar');
+
+            // Add Joomla information
+            $joomlaApp = \Joomla\CMS\Factory::getApplication();
+            $debugbar->addMessage("Joomla Template: " . $joomlaApp->getTemplate(), 'jaravel');
+            $debugbar->addMessage("Joomla User ID: " . \Joomla\CMS\Factory::getUser()->id, 'jaravel');
+
+            // Get component information
             if (App::bound('jaravel.component_id')) {
                 $componentId = App::make('jaravel.component_id');
                 $debugbar->addMessage("Component: " . $componentId, 'jaravel');
             }
 
-            // Only modify HTML responses
-            if ($response instanceof Response &&
-                $response->headers->get('Content-Type', '') == '' ||
-                strpos($response->headers->get('Content-Type', ''), 'text/html') !== false) {
-
+            // Modify response if it's HTML to ensure Debugbar assets load correctly in Joomla
+            if ($response instanceof Response) {
                 $content = $response->getContent();
 
-                // Check if we need to inject the debugbar
+                // Ensure jQuery doesn't conflict with Joomla's jQuery
                 if (strpos($content, '</body>') !== false) {
-                    try {
-                        // Get the debugbar renderer
-                        $renderer = $debugbar->getJavascriptRenderer();
-
-                        // Set the base URL for assets
-                        $renderer->setBaseUrl(\Joomla\CMS\Uri\Uri::root(true) . '/media/jaravel/debugbar');
-
-                        // Force enable jQuery NoConflict
-                        $renderer->setEnableJqueryNoConflict(true);
-
-                        // Get debugbar HTML (head and body)
-                        $debugbarHead = $renderer->renderHead();
-                        $debugbarBody = $renderer->render();
-
-                        // Add the head content before </head>
-                        if (strpos($content, '</head>') !== false) {
-                            $content = str_replace('</head>', $debugbarHead . '</head>', $content);
-                        } else {
-                            // If no </head> tag, add at the start of the body
-                            $content = str_replace('<body', $debugbarHead . '<body', $content);
-                        }
-
-                        // Add the body content before </body>
-                        $content = str_replace('</body>', $debugbarBody . '</body>', $content);
-
-                        // Update the response content
-                        $response->setContent($content);
-                    } catch (\Exception $e) {
-                        // If there's an error with debugbar rendering, log it but don't break the response
-                        error_log('Debugbar error: ' . $e->getMessage());
-                    }
+                    $content = str_replace('</body>',
+                        "<script>if (typeof jQuery !== 'undefined') { jQuery.noConflict(true); }</script>\n</body>",
+                        $content);
+                    $response->setContent($content);
                 }
             }
         }

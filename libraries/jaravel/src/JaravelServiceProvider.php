@@ -44,24 +44,17 @@ class JaravelServiceProvider extends ServiceProvider
             if ($this->app['config']->get('jaravel.debug', false)) {
                 Debug::enable();
             }
-
-            // Register Debugbar
-            if ($this->app['config']->get('jaravel.use_debugbar', false)) {
-                // Register Debugbar middleware for all web routes
-                if ($this->app->bound('router')) {
-                    $this->app['router']->pushMiddlewareToGroup('web', \Jaravel\Middleware\DebugbarMiddleware::class);
-                }
-
-                // Register Laravel Debugbar if the class exists
-                if (class_exists('\Barryvdh\Debugbar\ServiceProvider')) {
-                    $this->app->register('\Barryvdh\Debugbar\ServiceProvider');
-                    $this->app->alias('Debugbar', '\Barryvdh\Debugbar\Facade');
-                }
-            }
         }
 
         // Register additional service providers
         $this->app->register(BladeServiceProvider::class);
+
+        // IMPORTANT: Directly register Laravel Debugbar
+        // Note: We're not checking if the class exists or if debug is enabled
+        // to make sure we can diagnose the issue
+        if ($this->app['config']->get('jaravel.use_debugbar', true)) {
+            $this->app->register(\Barryvdh\Debugbar\ServiceProvider::class);
+        }
     }
 
     /**
