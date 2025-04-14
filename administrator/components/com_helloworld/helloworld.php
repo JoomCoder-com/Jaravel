@@ -2,7 +2,18 @@
 // administrator/components/com_helloworld/helloworld.php
 defined('_JEXEC') or die('Restricted access');
 
-// ... your existing initialization code ...
+// Check if Jaravel library exists
+if (!file_exists(JPATH_LIBRARIES . '/jaravel/vendor/autoload.php')) {
+    die('Jaravel library not found. Please make sure it is installed correctly.');
+}
+
+// Include the Jaravel autoloader
+require_once JPATH_LIBRARIES . '/jaravel/vendor/autoload.php';
+
+// Load component's autoloader if it exists
+if (file_exists(__DIR__ . '/vendor/autoload.php')) {
+    require_once __DIR__ . '/vendor/autoload.php';
+}
 
 // Create a new Jaravel entry point
 $jaravel = new \Jaravel\Entry();
@@ -31,6 +42,38 @@ try {
     echo '<h4>Stack Trace:</h4>';
     echo '<pre>' . htmlspecialchars($e->getTraceAsString()) . '</pre>';
     echo '</div>';
+}
+
+// Create directory for debugbar assets
+$mediaPath = JPATH_ROOT . '/media/jaravel/debugbar';
+if (!is_dir($mediaPath)) {
+    try {
+        \Joomla\CMS\Filesystem\Folder::create($mediaPath, 0755);
+
+        // Check multiple possible source paths for the debugbar resources
+        $possiblePaths = [
+            JPATH_LIBRARIES . '/jaravel/vendor/maximebf/debugbar/src/DebugBar/Resources',
+            JPATH_LIBRARIES . '/jaravel/vendor/barryvdh/laravel-debugbar/resources',
+            JPATH_ROOT . '/vendor/maximebf/debugbar/src/DebugBar/Resources',
+            JPATH_ROOT . '/vendor/barryvdh/laravel-debugbar/resources',
+            JPATH_ROOT . '/vendor/barryvdh/php-debugbar/resources',
+        ];
+
+        $sourcePath = null;
+        foreach ($possiblePaths as $path) {
+            if (is_dir($path)) {
+                $sourcePath = $path;
+                break;
+            }
+        }
+
+        if ($sourcePath) {
+            // Copy all files from source to destination
+            \Joomla\CMS\Filesystem\Folder::copy($sourcePath, $mediaPath, '', true);
+        }
+    } catch (Exception $e) {
+        // Silently fail
+    }
 }
 
 // Display the debugging information regardless of errors

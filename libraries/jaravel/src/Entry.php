@@ -146,31 +146,129 @@ class Entry
         $app['config']->set('jaravel.debug', Debug::isEnabled());
         $app['config']->set('jaravel.use_debugbar', $this->debugbarEnabled);
 
-
         if ($this->debugbarEnabled) {
-            // Directly register Debugbar service provider
             try {
+                // Check if the class exists
                 if (class_exists('\Barryvdh\Debugbar\ServiceProvider')) {
+                    // Register Debugbar service provider
+                    Debug::log("Registering Debugbar service provider");
                     $app->register('\Barryvdh\Debugbar\ServiceProvider');
+
+                    // Create alias
                     $app->alias('Debugbar', '\Barryvdh\Debugbar\Facade');
 
-                    // Make sure it's enabled
+                    // Make sure it's enabled in the config
                     $app['config']->set('debugbar.enabled', true);
 
-                    // Set Debugbar storage path
+                    // Set storage path
                     $storagePath = JPATH_CACHE . '/debugbar';
                     if (!is_dir($storagePath)) {
                         mkdir($storagePath, 0755, true);
                     }
                     $app['config']->set('debugbar.storage.path', $storagePath);
+
+                    // Set the base URL for assets (using the media directory)
+                    $baseUrl = \Joomla\CMS\Uri\Uri::root(true) . '/media/jaravel/debugbar';
+                    $app['config']->set('debugbar.javascript_renderer', [
+                        'base_url' => $baseUrl
+                    ]);
+
+                    // Enable all collectors
+                    $app['config']->set('debugbar.collectors.phpinfo', true);
+                    $app['config']->set('debugbar.collectors.messages', true);
+                    $app['config']->set('debugbar.collectors.time', true);
+                    $app['config']->set('debugbar.collectors.memory', true);
+                    $app['config']->set('debugbar.collectors.exceptions', true);
+                    $app['config']->set('debugbar.collectors.logs', true);
+                    $app['config']->set('debugbar.collectors.db', true);
+                    $app['config']->set('debugbar.collectors.views', true);
+                    $app['config']->set('debugbar.collectors.route', true);
+                    $app['config']->set('debugbar.collectors.queries', true);
+                    $app['config']->set('debugbar.collectors.cache', true);
+
+                    Debug::log("Debugbar registered successfully");
                 } else {
-                    Debug::log('Laravel Debugbar package not found');
+                    Debug::error('Laravel Debugbar class not found. Please ensure it is installed via composer.');
                 }
             } catch (\Exception $e) {
                 Debug::error('Error registering Debugbar: ' . $e->getMessage());
             }
         }
     }
+
+    /**
+     * Run a component task through Laravel
+     *
+     * @param string $componentName
+     * @param string $route
+     * @param array $params
+     * @return Response
+     */
+    public function runTask($componentName, $route, $params = [])
+    {
+        try {
+            Debug::log("Running task for component: {$componentName}, route: {$route}", $params);
+            Debug::startMeasure('runTask');
+
+            // Ensure component is registered
+            $this->registerComponent($componentName);
+
+            // Get the Laravel application instance
+            $app = $this->manager->getInstance($componentName);
+
+            // Load routes from component if not already loaded
+            if (!isset($this->routeCache[$componentName])) {
+                $this->loadRoutes($app, $componentName);
+            }
+
+            // Create a request for the route
+            $request = $this->createRequest($route, $params);
+
+            // Process the request through Laravel
+            $kernel = $app->make('Illuminate\Contracts\Http\Kernel');
+
+            // Register Debugbar middleware if it's enabled
+            if ($this->debugbarEnabled) {
+                // Make sure debugbar assets are available
+                if (class_exists('\Jaravel\Commands\CopyDebugbarAssets')) {
+                    \Jaravel\Commands\CopyDebugbarAssets::execute();
+                }
+
+                // Push middleware to kernel
+                $kernel->pushMiddleware(\Jaravel\Middleware\DebugbarMiddleware::class);
+            }
+
+            Debug::startMeasure('handleRequest');
+            $response = $kernel->handle($request);
+            Debug::stopMeasure('handleRequest');
+
+            // Log cached routes if debugging is enabled and not already logged
+            if (Debug::isEnabled() && $this->routeDebuggingEnabled && isset($this->routeCache[$componentName])) {
+                Debug::log("Registered routes", $this->routeCache[$componentName]);
+            }
+
+            // Terminate the application
+            $kernel->terminate($request, $response);
+
+            Debug::stopMeasure('runTask');
+
+            return $response;
+
+        } catch (\Exception $e) {
+            Debug::captureException($e);
+
+            // Return a response with error details
+            $content = 'Jaravel Error: ' . $e->getMessage() . ' in ' . $e->getFile() . ' line ' . $e->getLine();
+
+            // Add debug info to error response if enabled
+            if (Debug::isEnabled()) {
+                $content .= Debug::render();
+            }
+
+            return new Response($content, 500);
+        }
+    }
+
 
     /**
      * Cache routes for a component
@@ -212,68 +310,6 @@ class Entry
 
         } catch (\Exception $e) {
             Debug::error("Error caching routes: " . $e->getMessage());
-        }
-    }
-
-    /**
-     * Run a component task through Laravel
-     *
-     * @param string $componentName
-     * @param string $route
-     * @param array $params
-     * @return Response
-     */
-    public function runTask($componentName, $route, $params = [])
-    {
-        try {
-            Debug::log("Running task for component: {$componentName}, route: {$route}", $params);
-            Debug::startMeasure('runTask');
-
-            // Ensure component is registered
-            $this->registerComponent($componentName);
-
-            // Get the Laravel application instance
-            $app = $this->manager->getInstance($componentName);
-
-            // Load routes from component if not already loaded
-            if (!isset($this->routeCache[$componentName])) {
-                $this->loadRoutes($app, $componentName);
-            }
-
-            // Create a request for the route
-            $request = $this->createRequest($route, $params);
-
-            // Process the request through Laravel
-            $kernel = $app->make('Illuminate\Contracts\Http\Kernel');
-
-            Debug::startMeasure('handleRequest');
-            $response = $kernel->handle($request);
-            Debug::stopMeasure('handleRequest');
-
-            // Log cached routes if debugging is enabled and not already logged
-            if (Debug::isEnabled() && $this->routeDebuggingEnabled && isset($this->routeCache[$componentName])) {
-                Debug::log("Registered routes", $this->routeCache[$componentName]);
-            }
-
-            // Terminate the application
-            $kernel->terminate($request, $response);
-
-            Debug::stopMeasure('runTask');
-
-            return $response;
-
-        } catch (\Exception $e) {
-            Debug::captureException($e);
-
-            // Return a response with error details
-            $content = 'Jaravel Error: ' . $e->getMessage() . ' in ' . $e->getFile() . ' line ' . $e->getLine();
-
-            // Add debug info to error response if enabled
-            if (Debug::isEnabled()) {
-                $content .= Debug::render();
-            }
-
-            return new Response($content, 500);
         }
     }
 
