@@ -1,18 +1,10 @@
 <?php
+// administrator/components/com_helloworld/routes/web.php
 
 use Illuminate\Support\Facades\Route;
 use Jaravel\Component\HelloWorld\Http\Controllers\TestController;
 
-// Simple route to check if controller exists
-Route::get('/controller-test', function() {
-    if (class_exists('Jaravel\Component\HelloWorld\Http\Controllers\TestController')) {
-        return 'TestController class exists!';
-    } else {
-        return 'TestController class does not exist!';
-    }
-});
-
-// Controller-based routes using class reference
+// Using the controller class with the use statement
 Route::get('/test', [TestController::class, 'index']);
 Route::get('/test/{id}', [TestController::class, 'show'])->where('id', '[0-9]+');
 
@@ -35,7 +27,11 @@ Route::get('/api/test', function() {
     ]);
 });
 
-// Catch-all route
-Route::any('{any}', function($any = 'home') {
-    return 'Caught admin route: ' . $any;
-})->where('any', '.*');
+// Simple route to check if controller exists
+Route::get('/controller-test', function() {
+    if (class_exists(TestController::class)) {
+        return 'TestController class exists!';
+    } else {
+        return 'TestController class does not exist!';
+    }
+});

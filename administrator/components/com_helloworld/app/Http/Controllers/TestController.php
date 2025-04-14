@@ -1,5 +1,5 @@
 <?php
-
+// Make sure this file is in: administrator/components/com_helloworld/app/Http/Controllers/TestController.php
 namespace Jaravel\Component\HelloWorld\Http\Controllers;
 
 use Illuminate\Http\Request;
@@ -34,4 +34,4 @@ class TestController extends Controller
             'details' => 'This is test item ' . $id
         ]);
     }
-} 
+}
