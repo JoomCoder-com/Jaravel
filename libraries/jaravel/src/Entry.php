@@ -25,6 +25,11 @@ class Entry
     protected $routeDebuggingEnabled = false;
 
     /**
+     * @var bool Whether Laravel Debugbar is enabled
+     */
+    protected $debugbarEnabled = false;
+
+    /**
      * @var array Cached routes by component
      */
     protected $routeCache = [];
@@ -35,6 +40,16 @@ class Entry
     public function __construct()
     {
         $this->manager = new Manager();
+    }
+
+    /**
+     * Get the instance manager
+     *
+     * @return Manager
+     */
+    public function getManager()
+    {
+        return $this->manager;
     }
 
     /**
@@ -53,15 +68,31 @@ class Entry
     }
 
     /**
-     * Enable detailed route debugging
-     * 
+     * Enable Laravel Debugbar
+     *
      * @param bool $enabled
      * @return void
      */
-    public function enableRouteDebugging($enabled = true) 
+    public function enableDebugbar($enabled = true)
+    {
+        $this->debugbarEnabled = $enabled;
+
+        // Make sure debug is also enabled if debugbar is enabled
+        if ($enabled) {
+            $this->enableDebug(true);
+        }
+    }
+
+    /**
+     * Enable detailed route debugging
+     *
+     * @param bool $enabled
+     * @return void
+     */
+    public function enableRouteDebugging($enabled = true)
     {
         $this->routeDebuggingEnabled = $enabled;
-        
+
         if ($enabled) {
             // Make sure debug is also enabled
             $this->enableDebug(true);
@@ -85,14 +116,59 @@ class Entry
         // Initialize the application instance - this will also setup the Facade root
         $app = $this->manager->getInstance($componentName);
 
+        // Configure application settings
+        $this->configureApplication($app, $componentName);
+
         // Register the component
         self::$registeredComponents[] = $componentName;
-        
+
         // Cache routes if route debugging is enabled
         if ($this->routeDebuggingEnabled) {
             Debug::log("Pre-loading routes for component: {$componentName}");
             $this->loadRoutes($app, $componentName);
             $this->cacheRoutes($componentName);
+        }
+    }
+
+    // In the configureApplication method of Entry.php, add:
+
+    /**
+     * Configure application settings
+     *
+     * @param \Illuminate\Foundation\Application $app
+     * @param string $componentName
+     * @return void
+     */
+    protected function configureApplication($app, $componentName)
+    {
+        // Set debugging config
+        $app['config']->set('app.debug', Debug::isEnabled());
+        $app['config']->set('jaravel.debug', Debug::isEnabled());
+        $app['config']->set('jaravel.use_debugbar', $this->debugbarEnabled);
+
+
+        if ($this->debugbarEnabled) {
+            // Directly register Debugbar service provider
+            try {
+                if (class_exists('\Barryvdh\Debugbar\ServiceProvider')) {
+                    $app->register('\Barryvdh\Debugbar\ServiceProvider');
+                    $app->alias('Debugbar', '\Barryvdh\Debugbar\Facade');
+
+                    // Make sure it's enabled
+                    $app['config']->set('debugbar.enabled', true);
+
+                    // Set Debugbar storage path
+                    $storagePath = JPATH_CACHE . '/debugbar';
+                    if (!is_dir($storagePath)) {
+                        mkdir($storagePath, 0755, true);
+                    }
+                    $app['config']->set('debugbar.storage.path', $storagePath);
+                } else {
+                    Debug::log('Laravel Debugbar package not found');
+                }
+            } catch (\Exception $e) {
+                Debug::error('Error registering Debugbar: ' . $e->getMessage());
+            }
         }
     }
 
@@ -107,31 +183,33 @@ class Entry
         try {
             // Get the Laravel application instance
             $app = $this->manager->getInstance($componentName);
-            
+
             // Get routes collection
             $routes = $app['router']->getRoutes();
-            
+
             if (count($routes) === 0) {
                 Debug::log("No routes found for component: {$componentName}");
                 return;
             }
-            
+
             // Format routes for debugging
             $formattedRoutes = [];
             foreach ($routes->getRoutes() as $route) {
                 $formattedRoutes[] = [
                     'methods' => $route->methods(),
                     'uri' => $route->uri(),
-                    'action' => $route->getActionName()
+                    'name' => $route->getName(),
+                    'action' => $route->getActionName(),
+                    'middleware' => $route->gatherMiddleware()
                 ];
             }
-            
+
             // Store in cache
             $this->routeCache[$componentName] = $formattedRoutes;
-            
+
             // Log for debug output
             Debug::log("Routes registered for component: {$componentName}", $formattedRoutes);
-            
+
         } catch (\Exception $e) {
             Debug::error("Error caching routes: " . $e->getMessage());
         }
@@ -149,6 +227,7 @@ class Entry
     {
         try {
             Debug::log("Running task for component: {$componentName}, route: {$route}", $params);
+            Debug::startMeasure('runTask');
 
             // Ensure component is registered
             $this->registerComponent($componentName);
@@ -166,7 +245,10 @@ class Entry
 
             // Process the request through Laravel
             $kernel = $app->make('Illuminate\Contracts\Http\Kernel');
+
+            Debug::startMeasure('handleRequest');
             $response = $kernel->handle($request);
+            Debug::stopMeasure('handleRequest');
 
             // Log cached routes if debugging is enabled and not already logged
             if (Debug::isEnabled() && $this->routeDebuggingEnabled && isset($this->routeCache[$componentName])) {
@@ -176,12 +258,7 @@ class Entry
             // Terminate the application
             $kernel->terminate($request, $response);
 
-            // Add debug output if enabled
-            if (Debug::isEnabled() && $response instanceof Response) {
-                $content = $response->getContent();
-                $debugOutput = Debug::render();
-                $response->setContent($content . $debugOutput);
-            }
+            Debug::stopMeasure('runTask');
 
             return $response;
 
@@ -232,10 +309,12 @@ class Entry
         Facade::setFacadeApplication($app);
 
         // Load the routes file in a separate scope to avoid variable conflicts
+        Debug::startMeasure('loadRoutesFromFile');
         $router = $app['router'];
         $router->group(['middleware' => 'web'], function() use ($router, $routesPath) {
             require $routesPath;
         });
+        Debug::stopMeasure('loadRoutesFromFile');
 
         // Add a fallback route
         $app['router']->fallback(function() {

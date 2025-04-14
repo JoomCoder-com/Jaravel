@@ -48,6 +48,13 @@ class JaravelServiceProvider extends ServiceProvider
 
         // Register additional service providers
         $this->app->register(BladeServiceProvider::class);
+
+        // IMPORTANT: Directly register Laravel Debugbar
+        // Note: We're not checking if the class exists or if debug is enabled
+        // to make sure we can diagnose the issue
+        if ($this->app['config']->get('jaravel.use_debugbar', true)) {
+            $this->app->register(\Barryvdh\Debugbar\ServiceProvider::class);
+        }
     }
 
     /**
@@ -58,5 +65,24 @@ class JaravelServiceProvider extends ServiceProvider
     public function boot()
     {
         // Nothing additional needed here since Bootstrap::init() is called in register()
+
+        // Configure Debugbar if it's available
+        if ($this->app->bound('debugbar')) {
+            // Make sure Debugbar is enabled
+            $this->app['debugbar']->enable();
+
+            // Add Jaravel information
+            $this->app['debugbar']->addMessage('Jaravel Framework', 'jaravel');
+
+            if ($this->app->bound('jaravel.component_id')) {
+                $this->app['debugbar']->addMessage(
+                    'Component: ' . $this->app['jaravel.component_id'],
+                    'jaravel'
+                );
+            }
+        } else {
+            // Log that Debugbar is not available
+            Debug::log('Laravel Debugbar is not bound in the service container');
+        }
     }
 }
