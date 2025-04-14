@@ -4,10 +4,10 @@
 namespace Jaravel\Support;
 
 use Illuminate\Container\Container;
-use Illuminate\Support\Facades\Facade;
+use Jaravel\Instance\Manager;
 
 /**
- * Debug utility for Jaravel - wrapper around Laravel Debugbar
+ * Debug utility for Jaravel with Bootstrap styling
  */
 class Debug
 {
@@ -17,7 +17,12 @@ class Debug
     protected static $enabled = false;
 
     /**
-     * @var array Legacy error messages for backwards compatibility
+     * @var array Debug log messages
+     */
+    protected static $log = [];
+
+    /**
+     * @var array Error messages
      */
     protected static $errors = [];
 
@@ -30,17 +35,6 @@ class Debug
     public static function enable($enabled = true)
     {
         self::$enabled = $enabled;
-
-        // Enable or disable Debugbar if it exists
-        if ($app = self::getApplication()) {
-            if ($app->bound('debugbar')) {
-                if ($enabled) {
-                    $app['debugbar']->enable();
-                } else {
-                    $app['debugbar']->disable();
-                }
-            }
-        }
     }
 
     /**
@@ -66,19 +60,11 @@ class Debug
             return;
         }
 
-        // Use Debugbar if available
-        if ($app = self::getApplication()) {
-            if ($app->bound('debugbar')) {
-                if ($context !== null) {
-                    $message .= ' ' . json_encode($context);
-                }
-                $app['debugbar']->addMessage($message, 'jaravel');
-                return;
-            }
-        }
-
-        // Legacy fallback - log to error_log if Debugbar is not available
-        error_log('[Jaravel Debug] ' . $message . ($context !== null ? ' ' . json_encode($context) : ''));
+        self::$log[] = [
+            'time' => microtime(true),
+            'message' => $message,
+            'context' => $context
+        ];
     }
 
     /**
@@ -94,26 +80,29 @@ class Debug
             return;
         }
 
-        // Store for backwards compatibility
         self::$errors[] = [
             'time' => microtime(true),
             'message' => $message,
             'context' => $context
         ];
 
-        // Use Debugbar if available
-        if ($app = self::getApplication()) {
-            if ($app->bound('debugbar')) {
-                if ($context !== null) {
-                    $app['debugbar']->addMessage($context, 'errors');
-                }
-                $app['debugbar']->addMessage($message, 'errors');
-                return;
-            }
-        }
+        // Also add to regular log with error flag
+        self::$log[] = [
+            'time' => microtime(true),
+            'message' => "Error: " . $message,
+            'context' => $context,
+            'type' => 'error'
+        ];
+    }
 
-        // Legacy fallback - log to error_log if Debugbar is not available
-        error_log('[Jaravel Error] ' . $message . ($context !== null ? ' ' . json_encode($context) : ''));
+    /**
+     * Get all logged messages
+     *
+     * @return array
+     */
+    public static function getLog()
+    {
+        return self::$log;
     }
 
     /**
@@ -127,78 +116,318 @@ class Debug
     }
 
     /**
-     * Start timing a section
+     * Clear the log
      *
-     * @param string $name
      * @return void
      */
-    public static function startMeasure($name)
+    public static function clearLog()
     {
-        if (!self::$enabled) {
-            return;
-        }
-
-        if ($app = self::getApplication()) {
-            if ($app->bound('debugbar')) {
-                $app['debugbar']->startMeasure($name);
-            }
-        }
+        self::$log = [];
+        self::$errors = [];
     }
 
     /**
-     * Stop timing a section
+     * Get a list of registered routes for a component
      *
-     * @param string $name
-     * @return void
+     * @param string $componentName
+     * @return array
      */
-    public static function stopMeasure($name)
+    public static function getRoutes($componentName)
     {
         if (!self::$enabled) {
-            return;
+            return [];
         }
 
-        if ($app = self::getApplication()) {
-            if ($app->bound('debugbar')) {
-                $app['debugbar']->stopMeasure($name);
-            }
-        }
-    }
-
-    /**
-     * Add a measure
-     *
-     * @param string $name
-     * @param float $start
-     * @param float $end
-     * @return void
-     */
-    public static function addMeasure($name, $start, $end)
-    {
-        if (!self::$enabled) {
-            return;
-        }
-
-        if ($app = self::getApplication()) {
-            if ($app->bound('debugbar')) {
-                $app['debugbar']->addMeasure($name, $start, $end);
-            }
-        }
-    }
-
-    /**
-     * Get the current Laravel application instance
-     *
-     * @return \Illuminate\Contracts\Foundation\Application|null
-     */
-    protected static function getApplication()
-    {
-        // Try to get application from Container
         try {
-            return Container::getInstance();
+            // Get the Laravel application instance
+            $manager = new Manager();
+            $app = $manager->getInstance($componentName);
+
+            // Get all routes
+            $routesCollection = $app['router']->getRoutes();
+            $routes = [];
+
+            foreach ($routesCollection->getRoutes() as $route) {
+                $routes[] = [
+                    'methods' => $route->methods(),
+                    'uri' => $route->uri(),
+                    'action' => $route->getActionName()
+                ];
+            }
+
+            return $routes;
         } catch (\Exception $e) {
-            // If Container is not initialized, return null
-            return null;
+            self::error('Error getting routes: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ]);
+            return [];
         }
+    }
+
+    /**
+     * Format a variable for display
+     *
+     * @param mixed $var
+     * @return string
+     */
+    protected static function formatVar($var)
+    {
+        if (is_null($var)) {
+            return '<span class="text-muted">null</span>';
+        } elseif (is_bool($var)) {
+            return $var ? '<span class="text-primary">true</span>' : '<span class="text-primary">false</span>';
+        } elseif (is_string($var)) {
+            if (strlen($var) > 100) {
+                $var = htmlspecialchars(substr($var, 0, 100)) . '...';
+            } else {
+                $var = htmlspecialchars($var);
+            }
+            return '<span class="text-success">"' . $var . '"</span>';
+        } elseif (is_numeric($var)) {
+            return '<span class="text-primary">' . $var . '</span>';
+        } elseif (is_array($var)) {
+            $output = '<details><summary class="text-info">Array (' . count($var) . ')</summary>';
+            $output .= '<div class="ms-4">';
+            foreach ($var as $key => $value) {
+                $output .= '<div class="mb-1"><span class="text-dark">' . htmlspecialchars($key) . '</span> => ' . self::formatVar($value) . '</div>';
+            }
+            $output .= '</div></details>';
+            return $output;
+        } elseif (is_object($var)) {
+            $class = get_class($var);
+            $output = '<details><summary class="text-warning">' . $class . '</summary>';
+            $output .= '<div class="ms-4">';
+
+            $reflect = new \ReflectionObject($var);
+            $props = $reflect->getProperties();
+
+            foreach ($props as $prop) {
+                $prop->setAccessible(true);
+                if ($prop->isInitialized($var)) {
+                    $value = $prop->getValue($var);
+                    $output .= '<div class="mb-1"><span class="text-dark">' . $prop->getName() . '</span> => ' . self::formatVar($value) . '</div>';
+                } else {
+                    $output .= '<div class="mb-1"><span class="text-dark">' . $prop->getName() . '</span> => <span class="text-muted">uninitialized</span></div>';
+                }
+            }
+
+            $output .= '</div></details>';
+            return $output;
+        } else {
+            return '<span class="text-muted">' . gettype($var) . '</span>';
+        }
+    }
+
+    /**
+     * Render debug information
+     *
+     * @return string
+     */
+    public static function render()
+    {
+        if (!self::$enabled) {
+            return '';
+        }
+
+        // Generate a unique ID for this debug instance to prevent conflicts
+        $debugId = 'jaravel-debug-' . mt_rand(1000000, 9999999);
+
+        $output = '<div class="card mt-4 mb-4 shadow-sm" id="' . $debugId . '">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0 d-flex align-items-center">
+                    <span class="me-2"><i class="icon-wrench"></i> Jaravel Debug</span>
+                    <span class="ms-auto badge bg-light text-dark">' . count(self::$log) . ' Events</span>
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <ul class="nav nav-tabs" role="tablist" id="' . $debugId . '-tabs">
+                    <li class="nav-item">
+                        <a class="nav-link active" data-bs-toggle="tab" href="#' . $debugId . '-log" role="tab" aria-selected="true">Log Messages</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#' . $debugId . '-routes" role="tab" aria-selected="false">Routes</a>
+                    </li>';
+
+        if (!empty(self::$errors)) {
+            $output .= '
+                    <li class="nav-item">
+                        <a class="nav-link text-danger" data-bs-toggle="tab" href="#' . $debugId . '-errors" role="tab" aria-selected="false">
+                            Errors <span class="badge bg-danger">' . count(self::$errors) . '</span>
+                        </a>
+                    </li>';
+        }
+
+        $output .= '
+                </ul>
+                
+                <div class="tab-content p-3">
+                    <div class="tab-pane fade show active" id="' . $debugId . '-log" role="tabpanel">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 120px">Time</th>
+                                        <th>Message</th>
+                                    </tr>
+                                </thead>
+                                <tbody>';
+
+        if (empty(self::$log)) {
+            $output .= '<tr><td colspan="2" class="text-center text-muted">No log entries</td></tr>';
+        } else {
+            foreach (self::$log as $entry) {
+                $time = date('H:i:s', (int)$entry['time']) . '.' . substr(number_format($entry['time'] - (int)$entry['time'], 4), 2);
+                $rowClass = isset($entry['type']) && $entry['type'] === 'error' ? 'table-danger' : '';
+
+                $output .= '<tr class="' . $rowClass . '">
+                    <td class="text-muted">' . $time . '</td>
+                    <td>' . htmlspecialchars($entry['message']);
+
+                if ($entry['context'] !== null) {
+                    $output .= '<div class="mt-2 p-2 bg-light rounded">' . self::formatVar($entry['context']) . '</div>';
+                }
+
+                $output .= '</td></tr>';
+            }
+        }
+
+        $output .= '</tbody></table></div></div>';
+
+        // Routes Tab
+        $output .= '<div class="tab-pane fade" id="' . $debugId . '-routes" role="tabpanel">';
+
+        $routes = self::$log ? array_filter(self::$log, function($entry) {
+            return $entry['message'] === 'Registered routes' && isset($entry['context']) && !empty($entry['context']);
+        }) : [];
+
+        if (!empty($routes)) {
+            $routeData = end($routes); // Get the last registered routes entry
+            
+            if (!empty($routeData['context'])) {
+                $output .= '<div class="alert alert-success mb-3">
+                    <strong>Routes successfully loaded!</strong> The following routes are registered for this component.
+                </div>';
+                
+                $output .= '<div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>Method</th>
+                                <th>URI</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>';
+
+                foreach ($routeData['context'] as $route) {
+                    $method = implode('|', $route['methods']);
+                    $methodClass = '';
+
+                    if (in_array('GET', $route['methods'])) {
+                        $methodClass = 'bg-success text-white';
+                    } elseif (in_array('POST', $route['methods'])) {
+                        $methodClass = 'bg-primary text-white';
+                    } elseif (in_array('PUT', $route['methods']) || in_array('PATCH', $route['methods'])) {
+                        $methodClass = 'bg-warning text-dark';
+                    } elseif (in_array('DELETE', $route['methods'])) {
+                        $methodClass = 'bg-danger text-white';
+                    }
+
+                    $output .= '<tr>
+                        <td><span class="badge ' . $methodClass . '">' . $method . '</span></td>
+                        <td>' . htmlspecialchars($route['uri']) . '</td>
+                        <td><code>' . htmlspecialchars($route['action']) . '</code></td>
+                    </tr>';
+                }
+
+                $output .= '</tbody></table></div>';
+            } else {
+                $output .= '<div class="alert alert-warning">Routes were registered but appear to be empty. Check your routes file.</div>';
+            }
+        } else {
+            $output .= '<div class="alert alert-info">
+                <strong>No routes found!</strong> To see your routes:
+                <ol class="mt-2">
+                    <li>Make sure you have a <code>routes/web.php</code> file in your component directory</li>
+                    <li>Add <code>$jaravel->enableRouteDebugging(true);</code> before registering your component</li>
+                    <li>Ensure your routes are defined correctly</li>
+                </ol>
+            </div>';
+        }
+
+        $output .= '</div>';
+
+        // Errors Tab
+        if (!empty(self::$errors)) {
+            $output .= '<div class="tab-pane fade" id="' . $debugId . '-errors" role="tabpanel">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th style="width: 120px">Time</th>
+                                <th>Error</th>
+                            </tr>
+                        </thead>
+                        <tbody>';
+
+            foreach (self::$errors as $error) {
+                $time = date('H:i:s', (int)$error['time']) . '.' . substr(number_format($error['time'] - (int)$error['time'], 4), 2);
+
+                $output .= '<tr class="table-danger">
+                    <td class="text-muted">' . $time . '</td>
+                    <td><strong>' . htmlspecialchars($error['message']) . '</strong>';
+
+                if ($error['context'] !== null) {
+                    $output .= '<div class="mt-2 p-2 bg-light rounded">' . self::formatVar($error['context']) . '</div>';
+                }
+
+                $output .= '</td></tr>';
+            }
+
+            $output .= '</tbody></table></div></div>';
+        }
+
+        $output .= '</div></div></div>';
+
+        // Add JavaScript to initialize the tabs properly
+        $output .= '
+        <script type="text/javascript">
+        document.addEventListener("DOMContentLoaded", function() {
+            // Initialize tabs using Bootstrap JavaScript
+            var tabEls = document.querySelectorAll(\'#' . $debugId . '-tabs a[data-bs-toggle="tab"]\');
+            tabEls.forEach(function(tabEl) {
+                tabEl.addEventListener("click", function(event) {
+                    event.preventDefault();
+                    
+                    // Remove active class from all tabs
+                    document.querySelectorAll(\'#' . $debugId . '-tabs a[data-bs-toggle="tab"]\').forEach(function(el) {
+                        el.classList.remove("active");
+                        el.setAttribute("aria-selected", "false");
+                    });
+                    
+                    // Remove active and show class from all tab panes
+                    document.querySelectorAll(\'#' . $debugId . ' .tab-pane\').forEach(function(el) {
+                        el.classList.remove("active");
+                        el.classList.remove("show");
+                    });
+                    
+                    // Add active class to current tab
+                    this.classList.add("active");
+                    this.setAttribute("aria-selected", "true");
+                    
+                    // Get target tab pane id
+                    var target = this.getAttribute("href");
+                    
+                    // Add active and show class to target tab pane
+                    document.querySelector(target).classList.add("active");
+                    document.querySelector(target).classList.add("show");
+                });
+            });
+        });
+        </script>';
+
+        return $output;
     }
 
     /**
@@ -213,15 +442,6 @@ class Debug
             return;
         }
 
-        // Log to Debugbar if available
-        if ($app = self::getApplication()) {
-            if ($app->bound('debugbar')) {
-                $app['debugbar']->addException($e);
-                return;
-            }
-        }
-
-        // Fallback to error log
         self::error('Exception: ' . $e->getMessage(), [
             'file' => $e->getFile(),
             'line' => $e->getLine(),
@@ -255,31 +475,5 @@ class Debug
         set_exception_handler(function($e) {
             self::captureException($e);
         });
-    }
-
-    /**
-     * Render debug information
-     * This is mostly for backward compatibility
-     *
-     * @return string
-     */
-    public static function render()
-    {
-        if (!self::$enabled) {
-            return '';
-        }
-
-        // Use Debugbar if available
-        if ($app = self::getApplication()) {
-            if ($app->bound('debugbar')) {
-                // Debugbar will render itself, no need to do anything here
-                return '';
-            }
-        }
-
-        // Fallback message if Debugbar is not available
-        return '<div class="alert alert-info">
-            <strong>Debug information:</strong> For better debugging, install Laravel Debugbar.
-        </div>';
     }
 }
