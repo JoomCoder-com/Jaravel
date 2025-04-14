@@ -390,41 +390,65 @@ class Debug
 
         $output .= '</div></div></div>';
 
-        // Add JavaScript to initialize the tabs properly
+        // Add JavaScript that leverages Bootstrap's tab API if available, but falls back to manual initialization
         $output .= '
         <script type="text/javascript">
-        document.addEventListener("DOMContentLoaded", function() {
-            // Initialize tabs using Bootstrap JavaScript
-            var tabEls = document.querySelectorAll(\'#' . $debugId . '-tabs a[data-bs-toggle="tab"]\');
-            tabEls.forEach(function(tabEl) {
-                tabEl.addEventListener("click", function(event) {
-                    event.preventDefault();
-                    
-                    // Remove active class from all tabs
-                    document.querySelectorAll(\'#' . $debugId . '-tabs a[data-bs-toggle="tab"]\').forEach(function(el) {
-                        el.classList.remove("active");
-                        el.setAttribute("aria-selected", "false");
+        (function() {
+            function initJaravelDebugTabs() {
+                var tabsContainer = document.getElementById("' . $debugId . '");
+                if (!tabsContainer) return;
+                
+                var tabLinks = tabsContainer.querySelectorAll(\'a[data-bs-toggle="tab"]\');
+                
+                // Check if Bootstrap 5 tab API is available
+                if (typeof bootstrap !== "undefined" && bootstrap.Tab) {
+                    // Initialize using Bootstrap\'s API
+                    tabLinks.forEach(function(link) {
+                        new bootstrap.Tab(link);
                     });
-                    
-                    // Remove active and show class from all tab panes
-                    document.querySelectorAll(\'#' . $debugId . ' .tab-pane\').forEach(function(el) {
-                        el.classList.remove("active");
-                        el.classList.remove("show");
+                } else {
+                    // Fallback to manual implementation
+                    tabLinks.forEach(function(link) {
+                        link.addEventListener("click", function(e) {
+                            e.preventDefault();
+                            
+                            // Remove active class from all tabs
+                            tabsContainer.querySelectorAll(\'a[data-bs-toggle="tab"]\').forEach(function(tab) {
+                                tab.classList.remove("active");
+                                tab.setAttribute("aria-selected", "false");
+                            });
+                            
+                            // Hide all tab panes
+                            tabsContainer.querySelectorAll(\'.tab-pane\').forEach(function(pane) {
+                                pane.classList.remove("show", "active");
+                            });
+                            
+                            // Activate current tab
+                            this.classList.add("active");
+                            this.setAttribute("aria-selected", "true");
+                            
+                            // Show current tab pane
+                            var targetId = this.getAttribute("href");
+                            var targetPane = document.querySelector(targetId);
+                            if (targetPane) {
+                                targetPane.classList.add("show", "active");
+                            }
+                        });
                     });
-                    
-                    // Add active class to current tab
-                    this.classList.add("active");
-                    this.setAttribute("aria-selected", "true");
-                    
-                    // Get target tab pane id
-                    var target = this.getAttribute("href");
-                    
-                    // Add active and show class to target tab pane
-                    document.querySelector(target).classList.add("active");
-                    document.querySelector(target).classList.add("show");
-                });
-            });
-        });
+                }
+            }
+            
+            // Try to initialize now if document is already ready
+            if (document.readyState === "complete" || document.readyState === "interactive") {
+                setTimeout(initJaravelDebugTabs, 1);
+            } else {
+                // Otherwise wait for DOM to be ready
+                document.addEventListener("DOMContentLoaded", initJaravelDebugTabs);
+            }
+            
+            // Also try again when window loads (backup)
+            window.addEventListener("load", initJaravelDebugTabs);
+        })();
         </script>';
 
         return $output;
@@ -475,5 +499,39 @@ class Debug
         set_exception_handler(function($e) {
             self::captureException($e);
         });
+    }
+
+    /**
+     * Render an exception with details for debugging
+     * 
+     * @param \Throwable $e
+     * @return string HTML output
+     */
+    public static function renderException(\Throwable $e)
+    {
+        if (!self::$enabled) {
+            return 'Server Error';
+        }
+
+        $output = '<div class="card mt-4 mb-4 shadow-sm bg-danger text-white">
+            <div class="card-header">
+                <h5 class="mb-0">Error: ' . htmlspecialchars($e->getMessage()) . '</h5>
+            </div>
+            <div class="card-body bg-white text-dark">
+                <div class="alert alert-danger">
+                    <p class="mb-0"><strong>Type:</strong> ' . get_class($e) . '</p>
+                    <p class="mb-0"><strong>File:</strong> ' . $e->getFile() . '</p>
+                    <p class="mb-0"><strong>Line:</strong> ' . $e->getLine() . '</p>
+                </div>
+                
+                <h6>Stack Trace:</h6>
+                <pre class="bg-light p-3 small">' . htmlspecialchars($e->getTraceAsString()) . '</pre>
+            </div>
+        </div>';
+        
+        // Add general debug info
+        $output .= self::render();
+        
+        return $output;
     }
 }

@@ -19,13 +19,9 @@ if (file_exists($componentAutoloader)) {
 // Create a new Jaravel entry point
 $jaravel = new \Jaravel\Entry();
 
-// Enable debug mode
-$jaravel->enableDebug(true);
-
-// Enable route debugging
-$jaravel->enableRouteDebugging(true);
-
 // Register the component
+// This will automatically load .env file if it exists
+// and configure debug settings based on environment variables
 $jaravel->registerComponent('com_helloworld');
 
 // Get the route from input
