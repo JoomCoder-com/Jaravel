@@ -6,6 +6,7 @@ use Jaravel\Support\Debug;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Facade;
+use Joomla\CMS\Factory;
 
 class Entry
 {
@@ -54,14 +55,14 @@ class Entry
 
     /**
      * Enable detailed route debugging
-     * 
+     *
      * @param bool $enabled
      * @return void
      */
-    public function enableRouteDebugging($enabled = true) 
+    public function enableRouteDebugging($enabled = true)
     {
         $this->routeDebuggingEnabled = $enabled;
-        
+
         if ($enabled) {
             // Make sure debug is also enabled
             $this->enableDebug(true);
@@ -72,9 +73,10 @@ class Entry
      * Register a Joomla component with Jaravel
      *
      * @param string $componentName
+     * @param string $sharedResourcesPath Optional path to shared resources
      * @return void
      */
-    public function registerComponent($componentName)
+    public function registerComponent($componentName, $sharedResourcesPath = null)
     {
         if (in_array($componentName, self::$registeredComponents)) {
             return;
@@ -82,12 +84,23 @@ class Entry
 
         Debug::log("Registering component: {$componentName}");
 
+        // Set shared resources path if provided or check for constant
+        if ($sharedResourcesPath === null && defined('JARAVEL_SHARED_PATH')) {
+            $sharedResourcesPath = JARAVEL_SHARED_PATH;
+            Debug::log("Using shared resources path from constant: {$sharedResourcesPath}");
+        }
+
+        // Store the shared resources path for the component if available
+        if ($sharedResourcesPath !== null) {
+            $this->manager->setSharedResourcesPath($componentName, $sharedResourcesPath);
+        }
+
         // Initialize the application instance - this will also setup the Facade root
         $app = $this->manager->getInstance($componentName);
 
         // Register the component
         self::$registeredComponents[] = $componentName;
-        
+
         // Cache routes if route debugging is enabled
         if ($this->routeDebuggingEnabled) {
             Debug::log("Pre-loading routes for component: {$componentName}");
@@ -107,15 +120,15 @@ class Entry
         try {
             // Get the Laravel application instance
             $app = $this->manager->getInstance($componentName);
-            
+
             // Get routes collection
             $routes = $app['router']->getRoutes();
-            
+
             if (count($routes) === 0) {
                 Debug::log("No routes found for component: {$componentName}");
                 return;
             }
-            
+
             // Format routes for debugging
             $formattedRoutes = [];
             foreach ($routes->getRoutes() as $route) {
@@ -125,13 +138,13 @@ class Entry
                     'action' => $route->getActionName()
                 ];
             }
-            
+
             // Store in cache
             $this->routeCache[$componentName] = $formattedRoutes;
-            
+
             // Log for debug output
             Debug::log("Routes registered for component: {$componentName}", $formattedRoutes);
-            
+
         } catch (\Exception $e) {
             Debug::error("Error caching routes: " . $e->getMessage());
         }
@@ -218,6 +231,16 @@ class Entry
 
         Debug::log("Loading routes from: {$routesPath}, exists: " . (file_exists($routesPath) ? 'yes' : 'no'));
 
+        // If we're in admin and the routes file doesn't exist in admin, try using the frontend routes
+        if ($isAdmin && !file_exists($routesPath)) {
+            $frontendRoutesPath = JPATH_SITE . '/components/' . $componentName . '/routes/web.php';
+            Debug::log("Admin routes not found, trying frontend routes: {$frontendRoutesPath}, exists: " . (file_exists($frontendRoutesPath) ? 'yes' : 'no'));
+
+            if (file_exists($frontendRoutesPath)) {
+                $routesPath = $frontendRoutesPath;
+            }
+        }
+
         // Create a fallback route if routes file doesn't exist
         if (!file_exists($routesPath)) {
             Debug::log("Routes file not found, creating fallback route");
@@ -267,7 +290,7 @@ class Entry
         $server['PATH_INFO'] = $path;
 
         // Get request method from Joomla
-        $method = \Joomla\CMS\Factory::getApplication()->input->getMethod() ?: 'GET';
+        $method = Factory::getApplication()->input->getMethod() ?: 'GET';
 
         Debug::log("Creating request: {$method} {$path}");
 
@@ -280,5 +303,35 @@ class Entry
             $_FILES,
             $server
         );
+    }
+
+    /**
+     * Detect the Laravel route from Joomla input
+     * Works with both SEF and non-SEF URLs
+     *
+     * @param string $componentName
+     * @return string
+     */
+    public function detectRoute($componentName)
+    {
+        $app = Factory::getApplication();
+        $input = $app->input;
+
+        // First, check if we have a direct route parameter (non-SEF)
+        $route = $input->getString('route', null);
+
+        if ($route !== null) {
+            return $route;
+        }
+
+        // Check if we have segments from SEF routing
+        $segments = $input->get('segments', [], 'array');
+
+        if (!empty($segments)) {
+            return '/' . implode('/', $segments);
+        }
+
+        // Default to home route
+        return '/';
     }
 }

@@ -1,5 +1,5 @@
 <?php
-// administrator/components/com_helloworld/helloworld.php
+// components/com_helloworld/helloworld.php
 defined('_JEXEC') or die('Restricted access');
 
 // Check if Jaravel library exists
@@ -10,13 +10,10 @@ if (!file_exists(JPATH_LIBRARIES . '/jaravel/vendor/autoload.php')) {
 // Include the Jaravel autoloader
 require_once JPATH_LIBRARIES . '/jaravel/vendor/autoload.php';
 
-// Define frontend component path for sharing resources
-$frontendPath = JPATH_SITE . '/components/com_helloworld';
-
-// Use frontend's autoloader
-$frontendAutoloader = $frontendPath . '/vendor/autoload.php';
-if (file_exists($frontendAutoloader)) {
-    require_once $frontendAutoloader;
+// Load component's autoloader if it exists
+$componentAutoloader = __DIR__ . '/vendor/autoload.php';
+if (file_exists($componentAutoloader)) {
+    require_once $componentAutoloader;
 }
 
 // Create a new Jaravel entry point
@@ -28,11 +25,11 @@ $jaravel->enableDebug(true);
 // Enable route debugging
 $jaravel->enableRouteDebugging(true);
 
-// Register the component with the shared frontend resources path
-$jaravel->registerComponent('com_helloworld', $frontendPath);
+// Register the component
+$jaravel->registerComponent('com_helloworld');
 
-// In admin, we just use the route parameter (no need for SEF)
-$route = \Joomla\CMS\Factory::getApplication()->input->getString('route', '/');
+// Get the route - this will work with both SEF and non-SEF URLs
+$route = $jaravel->detectRoute('com_helloworld');
 
 // Run the component through Jaravel
 $response = $jaravel->runTask('com_helloworld', $route);

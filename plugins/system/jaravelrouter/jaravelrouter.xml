@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension type="plugin" group="system" method="upgrade">
+    <name>plg_system_jaravelrouter</name>
+    <author>Your Name</author>
+    <creationDate>April 2025</creationDate>
+    <copyright>Copyright (C) 2025 Your Name. All rights reserved.</copyright>
+    <license>GNU General Public License version 2 or later</license>
+    <authorEmail>your.email@example.com</authorEmail>
+    <authorUrl>www.example.com</authorUrl>
+    <version>1.0.0</version>
+    <description>PLG_SYSTEM_JARAVELROUTER_XML_DESCRIPTION</description>
+    <files>
+        <filename plugin="jaravelrouter">jaravelrouter.php</filename>
+    </files>
+    <config>
+        <fields name="params">
+        </fields>
+    </config>
+</extension>

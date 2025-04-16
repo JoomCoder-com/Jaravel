@@ -13,6 +13,34 @@ class Manager
     protected $instances = [];
 
     /**
+     * @var array Shared resources paths by component
+     */
+    protected $sharedResourcesPaths = [];
+
+    /**
+     * Set a shared resources path for a component
+     *
+     * @param string $componentName
+     * @param string $path
+     * @return void
+     */
+    public function setSharedResourcesPath($componentName, $path)
+    {
+        $this->sharedResourcesPaths[$componentName] = $path;
+    }
+
+    /**
+     * Get the shared resources path for a component
+     *
+     * @param string $componentName
+     * @return string|null
+     */
+    public function getSharedResourcesPath($componentName)
+    {
+        return $this->sharedResourcesPaths[$componentName] ?? null;
+    }
+
+    /**
      * Get Laravel application instance for a component
      *
      * @param string $componentName Component name (e.g., com_myapp)
@@ -172,12 +200,22 @@ class Manager
      */
     protected function registerBasicViewFactory($app, $componentName, $basePath)
     {
+        // Check if we have shared resources for this component
+        $sharedPath = $this->getSharedResourcesPath($componentName);
+
         // View finder service
-        $app->singleton('view.finder', function($app) use ($basePath) {
-            $paths = [
-                $basePath . '/resources/views',
-                $basePath . '/views'
-            ];
+        $app->singleton('view.finder', function($app) use ($basePath, $sharedPath) {
+            $paths = [];
+
+            // Component's own views come first
+            $paths[] = $basePath . '/resources/views';
+            $paths[] = $basePath . '/views';
+
+            // If there's a shared path, add it last (fallback)
+            if ($sharedPath) {
+                $paths[] = $sharedPath . '/resources/views';
+                $paths[] = $sharedPath . '/views';
+            }
 
             return new \Illuminate\View\FileViewFinder(
                 $app['files'], $paths
@@ -197,7 +235,7 @@ class Manager
         });
 
         // View factory
-        $app->singleton('view', function($app) use ($componentName, $basePath) {
+        $app->singleton('view', function($app) use ($componentName, $basePath, $sharedPath) {
             $factory = new \Illuminate\View\Factory(
                 $app['view.engine.resolver'],
                 $app['view.finder'],
@@ -208,6 +246,11 @@ class Manager
 
             // Add component namespace
             $factory->addNamespace($componentName, $basePath . '/resources/views');
+
+            // If there's a shared path, add it as a fallback namespace
+            if ($sharedPath) {
+                $factory->addNamespace($componentName, $sharedPath . '/resources/views');
+            }
 
             return $factory;
         });
@@ -225,15 +268,18 @@ class Manager
         // Generate namespace
         $name = str_replace('com_', '', $componentName);
         $name = str_replace(' ', '', ucwords(str_replace('_', ' ', $name)));
-        $namespace = 'JaravelComponent\\' . $name;
+        $namespace = 'Jaravel\\Component\\' . $name;
 
         $app->instance('jaravel.component_namespace', $namespace);
+
+        // Get shared resources path if available
+        $sharedPath = $this->getSharedResourcesPath($componentName);
 
         // Register component namespace for autoloading
         $componentPath = ($app->runningInConsole() ? JPATH_ADMINISTRATOR : JPATH_SITE) . '/components/' . $componentName;
 
         // Register a PSR-4 autoloader for the component
-        spl_autoload_register(function($class) use ($namespace, $componentPath) {
+        spl_autoload_register(function($class) use ($namespace, $componentPath, $sharedPath) {
             // Check if the class is in our namespace
             if (strpos($class, $namespace . '\\') === 0) {
                 // Get the relative class name
@@ -241,11 +287,18 @@ class Manager
 
                 // Replace namespace separators with directory separators
                 $relativePath = str_replace('\\', '/', $relativeClass) . '.php';
-                $file = $componentPath . '/' . $relativePath;
 
-                // If the file exists, require it
+                // First try in the component path
+                $file = $componentPath . '/' . $relativePath;
                 if (file_exists($file)) {
                     require_once $file;
+                    return;
+                }
+
+                // If not found and we have a shared path, try there
+                if ($sharedPath && file_exists($sharedPath . '/' . $relativePath)) {
+                    require_once $sharedPath . '/' . $relativePath;
+                    return;
                 }
             }
         });
